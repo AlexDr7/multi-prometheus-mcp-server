@@ -2,7 +2,7 @@
 
 import os
 import json
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Tuple
 from dataclasses import dataclass
 import time
 from datetime import datetime, timedelta
@@ -271,7 +271,7 @@ if config.regions:
 else:
     logger.warning("No Prometheus regions configured. Configure at least one region for the server to function.")
 
-def get_region_config(region: Optional[str] = None) -> tuple[str, RegionConfig]:
+def get_region_config(region: Optional[str] = None) -> Tuple[str, RegionConfig]:
     """Get configuration for a specific region.
     
     Args:
