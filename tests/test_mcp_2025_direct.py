@@ -15,35 +15,10 @@ from prometheus_mcp_server.server import (
     get_metric_metadata,
     get_targets,
     health_check,
-    config,
-    RegionConfig
+    config
 )
 
 
-@pytest.fixture
-def setup_test_region():
-    """Setup a test region in the configuration."""
-    # Save original regions
-    original_regions = config.regions.copy()
-    original_default = config.default_region
-    
-    # Setup test region
-    test_region = RegionConfig(
-        url="http://test:9090",
-        url_ssl_verify=True,
-        username="",
-        password="",
-        token="",
-        custom_headers=None
-    )
-    config.regions["test"] = test_region
-    config.default_region = "test"
-    
-    yield
-    
-    # Restore original configuration
-    config.regions = original_regions
-    config.default_region = original_default
 
 
 @pytest.fixture
@@ -57,7 +32,7 @@ class TestDirectFunctionCalls:
     """Test functions called directly to cover context-dependent code paths."""
 
     @pytest.mark.asyncio
-    async def test_execute_query_direct_call(self, mock_make_request, setup_test_region):
+    async def test_execute_query_direct_call(self, mock_make_request):
         """Test execute_query by calling it directly."""
         mock_make_request.return_value = {
             "resultType": "vector",
@@ -74,7 +49,7 @@ class TestDirectFunctionCalls:
         assert "up" in result["links"][0]["href"]
 
     @pytest.mark.asyncio
-    async def test_execute_range_query_with_context(self, mock_make_request, setup_test_region):
+    async def test_execute_range_query_with_context(self, mock_make_request):
         """Test execute_range_query with context for progress reporting."""
         mock_make_request.return_value = {
             "resultType": "matrix",
@@ -112,7 +87,7 @@ class TestDirectFunctionCalls:
         assert result["links"][0]["rel"] == "prometheus-ui"
 
     @pytest.mark.asyncio
-    async def test_execute_range_query_without_context(self, mock_make_request, setup_test_region):
+    async def test_execute_range_query_without_context(self, mock_make_request):
         """Test execute_range_query without context (backward compatibility)."""
         mock_make_request.return_value = {
             "resultType": "matrix",
@@ -132,7 +107,7 @@ class TestDirectFunctionCalls:
         assert "links" in result
 
     @pytest.mark.asyncio
-    async def test_list_metrics_with_context(self, mock_make_request, setup_test_region):
+    async def test_list_metrics_with_context(self, mock_make_request):
         """Test list_metrics with context for progress reporting."""
         mock_make_request.return_value = ["metric1", "metric2", "metric3"]
 
@@ -163,7 +138,7 @@ class TestDirectFunctionCalls:
         assert "metric1" in result["metrics"]
 
     @pytest.mark.asyncio
-    async def test_list_metrics_without_context(self, mock_make_request, setup_test_region):
+    async def test_list_metrics_without_context(self, mock_make_request):
         """Test list_metrics without context (backward compatibility)."""
         mock_make_request.return_value = ["metric1", "metric2"]
 
@@ -176,7 +151,7 @@ class TestDirectFunctionCalls:
         assert "metric1" in result["metrics"]
 
     @pytest.mark.asyncio
-    async def test_get_metric_metadata_direct_call(self, mock_make_request, setup_test_region):
+    async def test_get_metric_metadata_direct_call(self, mock_make_request):
         """Test get_metric_metadata by calling it directly."""
         # Test when data is in "metadata" key
         mock_make_request.return_value = {
@@ -192,7 +167,7 @@ class TestDirectFunctionCalls:
         assert result[0]["type"] == "gauge"
 
     @pytest.mark.asyncio
-    async def test_get_metric_metadata_data_key(self, mock_make_request, setup_test_region):
+    async def test_get_metric_metadata_data_key(self, mock_make_request):
         """Test get_metric_metadata when data is in 'data' key instead of 'metadata'."""
         # Test when data is in "data" key (fallback path)
         mock_make_request.return_value = {
@@ -208,7 +183,7 @@ class TestDirectFunctionCalls:
         assert result[0]["type"] == "counter"
 
     @pytest.mark.asyncio
-    async def test_get_metric_metadata_fallback_to_raw_data(self, mock_make_request, setup_test_region):
+    async def test_get_metric_metadata_fallback_to_raw_data(self, mock_make_request):
         """Test get_metric_metadata when neither 'metadata' nor 'data' keys exist."""
         # Test when data is returned directly (neither "metadata" nor "data" keys exist)
         mock_make_request.return_value = [
@@ -222,7 +197,7 @@ class TestDirectFunctionCalls:
         assert result[0]["type"] == "gauge"
 
     @pytest.mark.asyncio
-    async def test_get_metric_metadata_dict_to_list_conversion(self, mock_make_request, setup_test_region):
+    async def test_get_metric_metadata_dict_to_list_conversion(self, mock_make_request):
         """Test get_metric_metadata when metadata is a dict and needs conversion to list."""
         # Test when metadata is a single dict that needs to be converted to a list
         mock_make_request.return_value = {
@@ -237,7 +212,7 @@ class TestDirectFunctionCalls:
         assert result[0]["type"] == "gauge"
 
     @pytest.mark.asyncio
-    async def test_get_metric_metadata_data_key_dict_to_list(self, mock_make_request, setup_test_region):
+    async def test_get_metric_metadata_data_key_dict_to_list(self, mock_make_request):
         """Test get_metric_metadata when data is in 'data' key as a dict."""
         # Test when data is in "data" key as a dict that needs conversion
         mock_make_request.return_value = {
@@ -252,7 +227,7 @@ class TestDirectFunctionCalls:
         assert result[0]["type"] == "gauge"
 
     @pytest.mark.asyncio
-    async def test_get_metric_metadata_raw_dict_to_list(self, mock_make_request, setup_test_region):
+    async def test_get_metric_metadata_raw_dict_to_list(self, mock_make_request):
         """Test get_metric_metadata when raw data is a dict (fallback path with dict)."""
         # Test when data is returned directly as a dict (neither "metadata" nor "data" keys)
         mock_make_request.return_value = {
@@ -267,7 +242,7 @@ class TestDirectFunctionCalls:
         assert result[0]["type"] == "counter"
 
     @pytest.mark.asyncio
-    async def test_get_targets_direct_call(self, mock_make_request, setup_test_region):
+    async def test_get_targets_direct_call(self, mock_make_request):
         """Test get_targets by calling it directly."""
         mock_make_request.return_value = {
             "activeTargets": [
@@ -297,7 +272,7 @@ class TestHealthCheckFunction:
     """Test health_check function directly to improve coverage."""
 
     @pytest.mark.asyncio
-    async def test_health_check_healthy_with_prometheus(self, mock_make_request, setup_test_region):
+    async def test_health_check_healthy_with_prometheus(self, mock_make_request):
         """Test health_check when Prometheus is accessible."""
         mock_make_request.return_value = {
             "resultType": "vector",
@@ -324,7 +299,7 @@ class TestHealthCheckFunction:
             assert result["configuration"]["authentication_configured"] is True
 
     @pytest.mark.asyncio
-    async def test_health_check_degraded_prometheus_error(self, mock_make_request, setup_test_region):
+    async def test_health_check_degraded_prometheus_error(self, mock_make_request):
         """Test health_check when Prometheus is not accessible."""
         mock_make_request.side_effect = Exception("Connection refused")
 
@@ -345,7 +320,7 @@ class TestHealthCheckFunction:
             assert "Connection refused" in result["prometheus_error"]
 
     @pytest.mark.asyncio
-    async def test_health_check_unhealthy_no_url(self, setup_test_region):
+    async def test_health_check_unhealthy_no_url(self):
         """Test health_check when PROMETHEUS_URL is not configured."""
         with patch("prometheus_mcp_server.server.config") as mock_config:
             mock_config.url = ""
@@ -360,11 +335,11 @@ class TestHealthCheckFunction:
 
             assert result["status"] == "unhealthy"
             assert "error" in result
-            assert "PROMETHEUS_URL not configured" in result["error"]
+            assert "No Prometheus URL provided or configured" in result["error"]
             assert result["configuration"]["prometheus_url_configured"] is False
 
     @pytest.mark.asyncio
-    async def test_health_check_with_token_auth(self, mock_make_request, setup_test_region):
+    async def test_health_check_with_token_auth(self, mock_make_request):
         """Test health_check with token authentication."""
         mock_make_request.return_value = {
             "resultType": "vector",
@@ -388,7 +363,7 @@ class TestHealthCheckFunction:
             assert result["transport"] == "sse"
 
     @pytest.mark.asyncio
-    async def test_health_check_exception_handling(self, setup_test_region):
+    async def test_health_check_exception_handling(self):
         """Test health_check handles unexpected exceptions."""
         with patch("prometheus_mcp_server.server.config") as mock_config:
             # Make accessing config.url raise an exception
@@ -401,7 +376,7 @@ class TestHealthCheckFunction:
             assert "Unexpected error" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_health_check_with_org_id(self, mock_make_request, setup_test_region):
+    async def test_health_check_with_org_id(self, mock_make_request):
         """Test health_check includes org_id configuration."""
         mock_make_request.return_value = {
             "resultType": "vector",
@@ -422,7 +397,7 @@ class TestHealthCheckFunction:
             assert result["configuration"]["org_id_configured"] is True
 
     @pytest.mark.asyncio
-    async def test_health_check_no_mcp_server_config(self, mock_make_request, setup_test_region):
+    async def test_health_check_no_mcp_server_config(self, mock_make_request):
         """Test health_check when mcp_server_config is None."""
         mock_make_request.return_value = {
             "resultType": "vector",
@@ -447,7 +422,7 @@ class TestProgressNotificationsPaths:
     """Test progress notification code paths for complete coverage."""
 
     @pytest.mark.asyncio
-    async def test_range_query_progress_all_stages(self, mock_make_request, setup_test_region):
+    async def test_range_query_progress_all_stages(self, mock_make_request):
         """Test all three progress stages in execute_range_query."""
         mock_make_request.return_value = {
             "resultType": "matrix",
@@ -478,7 +453,7 @@ class TestProgressNotificationsPaths:
         assert any(c["progress"] == 100 and "completed" in c["message"] for c in calls)
 
     @pytest.mark.asyncio
-    async def test_list_metrics_progress_both_stages(self, mock_make_request, setup_test_region):
+    async def test_list_metrics_progress_both_stages(self, mock_make_request):
         """Test both progress stages in list_metrics."""
         mock_make_request.return_value = ["m1", "m2", "m3", "m4", "m5"]
 
