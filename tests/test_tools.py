@@ -4,32 +4,7 @@ import pytest
 import json
 from unittest.mock import patch, MagicMock
 from fastmcp import Client
-from prometheus_mcp_server.server import mcp, execute_query, execute_range_query, list_metrics, get_metric_metadata, get_targets, config, RegionConfig
-
-@pytest.fixture
-def setup_test_region():
-    """Setup a test region in the configuration."""
-    # Save original regions
-    original_regions = config.regions.copy()
-    original_default = config.default_region
-    
-    # Setup test region
-    test_region = RegionConfig(
-        url="http://test:9090",
-        url_ssl_verify=True,
-        username="",
-        password="",
-        token="",
-        custom_headers=None
-    )
-    config.regions["test"] = test_region
-    config.default_region = "test"
-    
-    yield
-    
-    # Restore original configuration
-    config.regions = original_regions
-    config.default_region = original_default
+from prometheus_mcp_server.server import mcp, execute_query, execute_range_query, list_metrics, get_metric_metadata, get_targets
 
 @pytest.fixture
 def mock_make_request():
@@ -38,7 +13,7 @@ def mock_make_request():
         yield mock
 
 @pytest.mark.asyncio
-async def test_execute_query(mock_make_request, setup_test_region):
+async def test_execute_query(mock_make_request):
     """Test the execute_query tool."""
     # Setup
     mock_make_request.return_value = {
@@ -51,7 +26,7 @@ async def test_execute_query(mock_make_request, setup_test_region):
         result = await client.call_tool("execute_query", {"query":"up"})
 
         # Verify
-        mock_make_request.assert_called_once_with("query", params={"query": "up"}, region=None)
+        mock_make_request.assert_called_once_with("query", params={"query": "up"}, prometheus_url=None)
         assert result.data["resultType"] == "vector"
         assert len(result.data["result"]) == 1
         # Verify resource links are included (MCP 2025 feature)
@@ -60,7 +35,7 @@ async def test_execute_query(mock_make_request, setup_test_region):
         assert result.data["links"][0]["rel"] == "prometheus-ui"
 
 @pytest.mark.asyncio
-async def test_execute_query_with_time(mock_make_request, setup_test_region):
+async def test_execute_query_with_time(mock_make_request):
     """Test the execute_query tool with a specified time."""
     # Setup
     mock_make_request.return_value = {
@@ -73,11 +48,11 @@ async def test_execute_query_with_time(mock_make_request, setup_test_region):
         result = await client.call_tool("execute_query", {"query":"up", "time":"2023-01-01T00:00:00Z"})
         
         # Verify
-        mock_make_request.assert_called_once_with("query", params={"query": "up", "time": "2023-01-01T00:00:00Z"}, region=None)
+        mock_make_request.assert_called_once_with("query", params={"query": "up", "time": "2023-01-01T00:00:00Z"}, prometheus_url=None)
         assert result.data["resultType"] == "vector"
 
 @pytest.mark.asyncio
-async def test_execute_range_query(mock_make_request, setup_test_region):
+async def test_execute_range_query(mock_make_request):
     """Test the execute_range_query tool."""
     # Setup
     mock_make_request.return_value = {
@@ -107,7 +82,7 @@ async def test_execute_range_query(mock_make_request, setup_test_region):
             "start": "2023-01-01T00:00:00Z",
             "end": "2023-01-01T01:00:00Z",
             "step": "15s"
-        }, region=None)
+        }, prometheus_url=None)
         assert result.data["resultType"] == "matrix"
         assert len(result.data["result"]) == 1
         assert len(result.data["result"][0]["values"]) == 2
@@ -117,7 +92,7 @@ async def test_execute_range_query(mock_make_request, setup_test_region):
         assert result.data["links"][0]["rel"] == "prometheus-ui"
 
 @pytest.mark.asyncio
-async def test_list_metrics(mock_make_request, setup_test_region):
+async def test_list_metrics(mock_make_request):
     """Test the list_metrics tool."""
     # Setup
     mock_make_request.return_value = ["up", "go_goroutines", "http_requests_total"]
@@ -127,7 +102,7 @@ async def test_list_metrics(mock_make_request, setup_test_region):
         result = await client.call_tool("list_metrics", {})
 
         # Verify
-        mock_make_request.assert_called_once_with("label/__name__/values", region=None)
+        mock_make_request.assert_called_once_with("label/__name__/values", prometheus_url=None)
         # Now returns a dict with pagination info
         assert result.data["metrics"] == ["up", "go_goroutines", "http_requests_total"]
         assert result.data["total_count"] == 3
@@ -136,7 +111,7 @@ async def test_list_metrics(mock_make_request, setup_test_region):
         assert result.data["has_more"] == False
 
 @pytest.mark.asyncio
-async def test_list_metrics_with_pagination(mock_make_request, setup_test_region):
+async def test_list_metrics_with_pagination(mock_make_request):
     """Test the list_metrics tool with pagination."""
     # Setup
     mock_make_request.return_value = ["metric1", "metric2", "metric3", "metric4", "metric5"]
@@ -146,7 +121,7 @@ async def test_list_metrics_with_pagination(mock_make_request, setup_test_region
         result = await client.call_tool("list_metrics", {"limit": 2, "offset": 1})
 
         # Verify
-        mock_make_request.assert_called_once_with("label/__name__/values", region=None)
+        mock_make_request.assert_called_once_with("label/__name__/values", prometheus_url=None)
         assert result.data["metrics"] == ["metric2", "metric3"]
         assert result.data["total_count"] == 5
         assert result.data["returned_count"] == 2
@@ -154,7 +129,7 @@ async def test_list_metrics_with_pagination(mock_make_request, setup_test_region
         assert result.data["has_more"] == True
 
 @pytest.mark.asyncio
-async def test_list_metrics_with_filter(mock_make_request, setup_test_region):
+async def test_list_metrics_with_filter(mock_make_request):
     """Test the list_metrics tool with filter pattern."""
     # Setup
     mock_make_request.return_value = ["http_requests_total", "http_response_size", "go_goroutines", "up"]
@@ -164,7 +139,7 @@ async def test_list_metrics_with_filter(mock_make_request, setup_test_region):
         result = await client.call_tool("list_metrics", {"filter_pattern": "http"})
 
         # Verify
-        mock_make_request.assert_called_once_with("label/__name__/values", region=None)
+        mock_make_request.assert_called_once_with("label/__name__/values", prometheus_url=None)
         assert result.data["metrics"] == ["http_requests_total", "http_response_size"]
         assert result.data["total_count"] == 2
         assert result.data["returned_count"] == 2
@@ -172,7 +147,7 @@ async def test_list_metrics_with_filter(mock_make_request, setup_test_region):
         assert result.data["has_more"] == False
 
 @pytest.mark.asyncio
-async def test_get_metric_metadata(mock_make_request, setup_test_region):
+async def test_get_metric_metadata(mock_make_request):
     """Test the get_metric_metadata tool."""
     # Setup
     mock_make_request.return_value = {"data": [
@@ -188,16 +163,13 @@ async def test_get_metric_metadata(mock_make_request, setup_test_region):
         print(json_data)
 
         # Verify
-        mock_make_request.assert_called_once_with("metadata?metric=up", params=None, region=None)
-        # The result now includes both metadata and region
-        assert "metadata" in json_data
-        assert "region" in json_data
-        assert len(json_data["metadata"]) == 1
-        assert json_data["metadata"][0]["metric"] == "up"
-        assert json_data["metadata"][0]["type"] == "gauge"
+        mock_make_request.assert_called_once_with("metadata?metric=up", params=None, prometheus_url=None)
+        assert len(json_data) == 1
+        assert json_data[0]["metric"] == "up"
+        assert json_data[0]["type"] == "gauge"
 
 @pytest.mark.asyncio
-async def test_get_targets(mock_make_request, setup_test_region):
+async def test_get_targets(mock_make_request):
     """Test the get_targets tool."""
     # Setup
     mock_make_request.return_value = {
@@ -215,7 +187,7 @@ async def test_get_targets(mock_make_request, setup_test_region):
         json_data = json.loads(payload)
 
         # Verify
-        mock_make_request.assert_called_once_with("targets", region=None)
+        mock_make_request.assert_called_once_with("targets", prometheus_url=None)
         assert len(json_data["activeTargets"]) == 1
         assert json_data["activeTargets"][0]["health"] == "up"
         assert len(json_data["droppedTargets"]) == 0

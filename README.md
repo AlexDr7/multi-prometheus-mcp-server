@@ -139,97 +139,19 @@ docker run -i --rm \
 
 ### Configuration Options
 
-#### Single-Region Configuration (Legacy)
-
-For a single Prometheus instance, use these environment variables:
-
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `PROMETHEUS_URL` | URL of your Prometheus server | Yes |
-| `PROMETHEUS_URL_SSL_VERIFY` | Set to False to disable SSL verification | No (default: True) |
-| `PROMETHEUS_DISABLE_LINKS` | Set to True to disable Prometheus UI links in query results (saves context tokens) | No (default: False) |
+| `PROMETHEUS_URL_SSL_VERIFY` | Set to False to disable SSL verification | No |
+| `PROMETHEUS_DISABLE_LINKS` | Set to True to disable Prometheus UI links in query results (saves context tokens) | No |
 | `PROMETHEUS_USERNAME` | Username for basic authentication | No |
 | `PROMETHEUS_PASSWORD` | Password for basic authentication | No |
 | `PROMETHEUS_TOKEN` | Bearer token for authentication | No |
-| `PROMETHEUS_CUSTOM_HEADERS` | Custom headers as JSON string | No |
 | `ORG_ID` | Organization ID for multi-tenant setups | No |
 | `PROMETHEUS_MCP_SERVER_TRANSPORT` | Transport mode (stdio, http, sse) | No (default: stdio) |
 | `PROMETHEUS_MCP_BIND_HOST` | Host for HTTP transport | No (default: 127.0.0.1) |
 | `PROMETHEUS_MCP_BIND_PORT` | Port for HTTP transport | No (default: 8080) |
-
-#### Multi-Region Configuration
-
-To query multiple Prometheus instances across different regions, use region-specific environment variables. Region names are case-insensitive (e.g., `ATL`, `atl`, `Atl` are equivalent).
-
-**Region-specific URLs** (required for each region):
-- `PROMETHEUS_URL_<REGION>` - Prometheus URL for the region (e.g., `PROMETHEUS_URL_ATL`, `PROMETHEUS_URL_BLR`, `PROMETHEUS_URL_WDC`)
-
-**Region-specific authentication** (optional per region):
-- `PROMETHEUS_USERNAME_<REGION>`, `PROMETHEUS_PASSWORD_<REGION>` - Basic auth credentials
-- `PROMETHEUS_TOKEN_<REGION>` - Bearer token for authentication
-
-**Region-specific SSL verification** (optional per region):
-- `PROMETHEUS_SSL_VERIFY_<REGION>` - SSL verification setting (default: true)
-
-**Region-specific custom headers** (optional per region):
-- `PROMETHEUS_CUSTOM_HEADERS_<REGION>` - JSON string of custom headers
-
-**Global settings**:
-- `PROMETHEUS_DEFAULT_REGION` - Default region when none specified (default: first configured region)
-- `PROMETHEUS_DISABLE_LINKS` - Disable Prometheus UI links globally
-- `ORG_ID` - Organization ID for multi-tenant setups
-
-**Example multi-region configuration:**
-
-```bash
-# Atlanta region
-PROMETHEUS_URL_ATL=http://sos-proms01-atl01.example.com:9090
-PROMETHEUS_TOKEN_ATL=atl_secret_token
-
-# Bangalore region  
-PROMETHEUS_URL_BLR=http://sos-proms01-blr01.example.com:9090
-PROMETHEUS_SSL_VERIFY_BLR=false
-PROMETHEUS_USERNAME_BLR=admin
-PROMETHEUS_PASSWORD_BLR=password
-
-# Washington DC region
-PROMETHEUS_URL_WDC=http://sos-proms01-wdc01.example.com:9090
-PROMETHEUS_CUSTOM_HEADERS_WDC={"X-Environment":"production"}
-
-# Set default region
-PROMETHEUS_DEFAULT_REGION=atl
-```
-
-#### Using the Region Parameter
-
-All tools accept an optional `region` parameter to specify which Prometheus instance to query:
-
-```python
-# Query Atlanta region
-execute_query(query="up", region="atl")
-
-# Query Bangalore region  
-execute_query(query="up", region="blr")
-
-# Use default region (when not specified)
-execute_query(query="up")
-
-# Check health of all regions
-health_check()
-
-# Check health of specific region
-health_check(region="wdc")
-```
-
-#### Migration from Single-Region to Multi-Region
-
-If you have an existing single-region deployment:
-
-1. **Keep existing variables** - Your legacy `PROMETHEUS_URL`, `PROMETHEUS_USERNAME`, etc. will continue to work
-2. **Add new regions** - Add region-specific variables for additional Prometheus instances
-3. **Set default region** - Optionally set `PROMETHEUS_DEFAULT_REGION` to control which region is used by default
-
-The server maintains backward compatibility, so existing configurations will work without changes.
+| `PROMETHEUS_CUSTOM_HEADERS` | Custom headers as JSON string | No |
 
 ## Development
 
@@ -271,16 +193,33 @@ When adding new features, please also add corresponding tests.
 
 ### Tools
 
-All tools support an optional `region` parameter to specify which Prometheus instance to query. If not specified, the default region is used.
+All tools support an optional `prometheus_url` parameter that allows you to specify the Prometheus server URL dynamically per request, enabling querying of different Prometheus instances without changing the deployment configuration.
 
 | Tool | Category | Description |
 | --- | --- | --- |
-| `health_check` | System | Health check endpoint for container monitoring and status verification. Can check all regions or a specific region. |
-| `execute_query` | Query | Execute a PromQL instant query against Prometheus. Optionally specify a region. |
-| `execute_range_query` | Query | Execute a PromQL range query with start time, end time, and step interval. Optionally specify a region. |
-| `list_metrics` | Discovery | List all available metrics in Prometheus with pagination and filtering support. Optionally specify a region. |
-| `get_metric_metadata` | Discovery | Get metadata for a specific metric. Optionally specify a region. |
-| `get_targets` | Discovery | Get information about all scrape targets. Optionally specify a region. |
+| `health_check` | System | Health check endpoint for container monitoring and status verification. Accepts optional `prometheus_url` parameter. |
+| `execute_query` | Query | Execute a PromQL instant query against Prometheus. Accepts optional `prometheus_url` parameter. |
+| `execute_range_query` | Query | Execute a PromQL range query with start time, end time, and step interval. Accepts optional `prometheus_url` parameter. |
+| `list_metrics` | Discovery | List all available metrics in Prometheus with pagination and filtering support. Accepts optional `prometheus_url` parameter. |
+| `get_metric_metadata` | Discovery | Get metadata for a specific metric. Accepts optional `prometheus_url` parameter. |
+| `get_targets` | Discovery | Get information about all scrape targets. Accepts optional `prometheus_url` parameter. |
+
+#### Dynamic Prometheus URL
+
+You can provide a different Prometheus URL for each request:
+
+```python
+# Query Prometheus server in Atlanta region
+execute_query(query="up", prometheus_url="http://sos-proms01-atl01.example.com:9090")
+
+# Query Prometheus server in Bangalore region
+execute_query(query="up", prometheus_url="http://sos-proms01-blr01.example.com:9090")
+
+# Use the default configured URL (from PROMETHEUS_URL environment variable)
+execute_query(query="up")
+```
+
+This allows a single MCP server deployment to query multiple Prometheus instances without tool name conflicts.
 
 ## License
 
