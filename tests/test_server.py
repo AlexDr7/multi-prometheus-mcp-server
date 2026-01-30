@@ -157,7 +157,7 @@ def test_make_prometheus_request_missing_url(mock_get):
     config.url = ""  # Simulate missing URL
 
     # Execute and verify
-    with pytest.raises(ValueError, match="Prometheus configuration is missing"):
+    with pytest.raises(ValueError, match="Prometheus URL is required"):
         make_prometheus_request("query", {"query": "up"})
     
     # Cleanup

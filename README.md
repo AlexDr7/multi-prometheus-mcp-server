@@ -193,14 +193,33 @@ When adding new features, please also add corresponding tests.
 
 ### Tools
 
+All tools support an optional `prometheus_url` parameter that allows you to specify the Prometheus server URL dynamically per request, enabling querying of different Prometheus instances without changing the deployment configuration.
+
 | Tool | Category | Description |
 | --- | --- | --- |
-| `health_check` | System | Health check endpoint for container monitoring and status verification |
-| `execute_query` | Query | Execute a PromQL instant query against Prometheus |
-| `execute_range_query` | Query | Execute a PromQL range query with start time, end time, and step interval |
-| `list_metrics` | Discovery | List all available metrics in Prometheus with pagination and filtering support |
-| `get_metric_metadata` | Discovery | Get metadata for a specific metric |
-| `get_targets` | Discovery | Get information about all scrape targets |
+| `health_check` | System | Health check endpoint for container monitoring and status verification. Accepts optional `prometheus_url` parameter. |
+| `execute_query` | Query | Execute a PromQL instant query against Prometheus. Accepts optional `prometheus_url` parameter. |
+| `execute_range_query` | Query | Execute a PromQL range query with start time, end time, and step interval. Accepts optional `prometheus_url` parameter. |
+| `list_metrics` | Discovery | List all available metrics in Prometheus with pagination and filtering support. Accepts optional `prometheus_url` parameter. |
+| `get_metric_metadata` | Discovery | Get metadata for a specific metric. Accepts optional `prometheus_url` parameter. |
+| `get_targets` | Discovery | Get information about all scrape targets. Accepts optional `prometheus_url` parameter. |
+
+#### Dynamic Prometheus URL
+
+You can provide a different Prometheus URL for each request:
+
+```python
+# Query Prometheus server in Atlanta region
+execute_query(query="up", prometheus_url="http://sos-proms01-atl01.example.com:9090")
+
+# Query Prometheus server in Bangalore region
+execute_query(query="up", prometheus_url="http://sos-proms01-blr01.example.com:9090")
+
+# Use the default configured URL (from PROMETHEUS_URL environment variable)
+execute_query(query="up")
+```
+
+This allows a single MCP server deployment to query multiple Prometheus instances without tool name conflicts.
 
 ## License
 

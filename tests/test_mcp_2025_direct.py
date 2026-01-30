@@ -19,6 +19,8 @@ from prometheus_mcp_server.server import (
 )
 
 
+
+
 @pytest.fixture
 def mock_make_request():
     """Mock the make_prometheus_request function."""
@@ -333,7 +335,7 @@ class TestHealthCheckFunction:
 
             assert result["status"] == "unhealthy"
             assert "error" in result
-            assert "PROMETHEUS_URL not configured" in result["error"]
+            assert "No Prometheus URL provided or configured" in result["error"]
             assert result["configuration"]["prometheus_url_configured"] is False
 
     @pytest.mark.asyncio

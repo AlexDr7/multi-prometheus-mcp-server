@@ -35,17 +35,23 @@ logger = get_logger()
         "openWorldHint": True
     }
 )
-async def health_check() -> Dict[str, Any]:
+async def health_check(prometheus_url: Optional[str] = None) -> Dict[str, Any]:
     """Return health status of the MCP server and Prometheus connection.
+    
+    Args:
+        prometheus_url: Optional Prometheus URL to check. If not provided, uses the configured URL.
 
     Returns:
         Health status including service information, configuration, and connectivity
     """
     try:
+        # Use provided URL or fall back to configured URL
+        test_url = prometheus_url or config.url
+        
         health_status = {
             "status": "healthy",
             "service": "prometheus-mcp-server",
-            "version": "1.5.0",
+            "version": "1.5.1",
             "timestamp": datetime.utcnow().isoformat(),
             "transport": config.mcp_server_config.mcp_server_transport if config.mcp_server_config else "stdio",
             "configuration": {
@@ -55,32 +61,33 @@ async def health_check() -> Dict[str, Any]:
             }
         }
         
-        # Test Prometheus connectivity if configured
-        if config.url:
+        # Test Prometheus connectivity if URL available
+        if test_url:
             try:
                 # Quick connectivity test
-                make_prometheus_request("query", params={"query": "up", "time": str(int(time.time()))})
+                make_prometheus_request("query", params={"query": "up", "time": str(int(time.time()))}, prometheus_url=prometheus_url)
                 health_status["prometheus_connectivity"] = "healthy"
-                health_status["prometheus_url"] = config.url
+                health_status["prometheus_url"] = test_url
             except Exception as e:
                 health_status["prometheus_connectivity"] = "unhealthy"
                 health_status["prometheus_error"] = str(e)
                 health_status["status"] = "degraded"
         else:
             health_status["status"] = "unhealthy"
-            health_status["error"] = "PROMETHEUS_URL not configured"
+            health_status["error"] = "No Prometheus URL provided or configured"
         
-        logger.info("Health check completed", status=health_status["status"])
+        logger.info("Health check completed", status=health_status["status"], prometheus_url=prometheus_url)
         return health_status
         
     except Exception as e:
-        logger.error("Health check failed", error=str(e))
+        logger.error("Health check failed", error=str(e), prometheus_url=prometheus_url)
         return {
             "status": "unhealthy",
             "service": "prometheus-mcp-server",
             "error": str(e),
             "timestamp": datetime.utcnow().isoformat()
         }
+
 
 
 class TransportType(str, Enum):
@@ -151,15 +158,25 @@ def get_prometheus_auth():
         return requests.auth.HTTPBasicAuth(config.username, config.password)
     return None
 
-def make_prometheus_request(endpoint, params=None):
-    """Make a request to the Prometheus API with proper authentication and headers."""
-    if not config.url:
-        logger.error("Prometheus configuration missing", error="PROMETHEUS_URL not set")
-        raise ValueError("Prometheus configuration is missing. Please set PROMETHEUS_URL environment variable.")
+def make_prometheus_request(endpoint, params=None, prometheus_url: Optional[str] = None):
+    """Make a request to the Prometheus API with proper authentication and headers.
+    
+    Args:
+        endpoint: The Prometheus API endpoint to call
+        params: Query parameters for the request
+        prometheus_url: Optional Prometheus URL to use for this request. If not provided, uses the configured URL.
+    """
+    # Use provided URL or fall back to configured URL
+    base_url = prometheus_url or config.url
+    
+    if not base_url:
+        logger.error("Prometheus URL missing", error="No prometheus_url provided and PROMETHEUS_URL not set")
+        raise ValueError("Prometheus URL is required. Provide prometheus_url parameter or set PROMETHEUS_URL environment variable.")
+    
     if not config.url_ssl_verify:
         logger.warning("SSL certificate verification is disabled. This is insecure and should not be used in production environments.", endpoint=endpoint)
 
-    url = f"{config.url.rstrip('/')}/api/v1/{endpoint}"
+    url = f"{base_url.rstrip('/')}/api/v1/{endpoint}"
     url_ssl_verify = config.url_ssl_verify
     auth = get_prometheus_auth()
     headers = {}
@@ -247,12 +264,13 @@ def get_cached_metrics() -> List[str]:
         "openWorldHint": True
     }
 )
-async def execute_query(query: str, time: Optional[str] = None) -> Dict[str, Any]:
+async def execute_query(query: str, time: Optional[str] = None, prometheus_url: Optional[str] = None) -> Dict[str, Any]:
     """Execute an instant query against Prometheus.
 
     Args:
         query: PromQL query string
         time: Optional RFC3339 or Unix timestamp (default: current time)
+        prometheus_url: Optional Prometheus URL to query. If not provided, uses the configured URL.
 
     Returns:
         Query result with type (vector, matrix, scalar, string) and values
@@ -261,8 +279,8 @@ async def execute_query(query: str, time: Optional[str] = None) -> Dict[str, Any
     if time:
         params["time"] = time
     
-    logger.info("Executing instant query", query=query, time=time)
-    data = make_prometheus_request("query", params=params)
+    logger.info("Executing instant query", query=query, time=time, prometheus_url=prometheus_url)
+    data = make_prometheus_request("query", params=params, prometheus_url=prometheus_url)
 
     result = {
         "resultType": data["resultType"],
@@ -271,10 +289,12 @@ async def execute_query(query: str, time: Optional[str] = None) -> Dict[str, Any
 
     if not config.disable_prometheus_links:
         from urllib.parse import urlencode
+        # Use provided URL or fall back to configured URL for UI link
+        base_url = prometheus_url or config.url
         ui_params = {"g0.expr": query, "g0.tab": "0"}
         if time:
             ui_params["g0.moment_input"] = time
-        prometheus_ui_link = f"{config.url.rstrip('/')}/graph?{urlencode(ui_params)}"
+        prometheus_ui_link = f"{base_url.rstrip('/')}/graph?{urlencode(ui_params)}"
         result["links"] = [{
             "href": prometheus_ui_link,
             "rel": "prometheus-ui",
@@ -299,7 +319,7 @@ async def execute_query(query: str, time: Optional[str] = None) -> Dict[str, Any
         "openWorldHint": True
     }
 )
-async def execute_range_query(query: str, start: str, end: str, step: str, ctx: Context | None = None) -> Dict[str, Any]:
+async def execute_range_query(query: str, start: str, end: str, step: str, prometheus_url: Optional[str] = None, ctx: Context | None = None) -> Dict[str, Any]:
     """Execute a range query against Prometheus.
 
     Args:
@@ -307,6 +327,7 @@ async def execute_range_query(query: str, start: str, end: str, step: str, ctx: 
         start: Start time as RFC3339 or Unix timestamp
         end: End time as RFC3339 or Unix timestamp
         step: Query resolution step width (e.g., '15s', '1m', '1h')
+        prometheus_url: Optional Prometheus URL to query. If not provided, uses the configured URL.
 
     Returns:
         Range query result with type (usually matrix) and values over time
@@ -318,13 +339,13 @@ async def execute_range_query(query: str, start: str, end: str, step: str, ctx: 
         "step": step
     }
 
-    logger.info("Executing range query", query=query, start=start, end=end, step=step)
+    logger.info("Executing range query", query=query, start=start, end=end, step=step, prometheus_url=prometheus_url)
 
     # Report progress if context available
     if ctx:
         await ctx.report_progress(progress=0, total=100, message="Initiating range query...")
 
-    data = make_prometheus_request("query_range", params=params)
+    data = make_prometheus_request("query_range", params=params, prometheus_url=prometheus_url)
 
     # Report progress
     if ctx:
@@ -337,13 +358,15 @@ async def execute_range_query(query: str, start: str, end: str, step: str, ctx: 
 
     if not config.disable_prometheus_links:
         from urllib.parse import urlencode
+        # Use provided URL or fall back to configured URL for UI link
+        base_url = prometheus_url or config.url
         ui_params = {
             "g0.expr": query,
             "g0.tab": "0",
             "g0.range_input": f"{start} to {end}",
             "g0.step_input": step
         }
-        prometheus_ui_link = f"{config.url.rstrip('/')}/graph?{urlencode(ui_params)}"
+        prometheus_ui_link = f"{base_url.rstrip('/')}/graph?{urlencode(ui_params)}"
         result["links"] = [{
             "href": prometheus_ui_link,
             "rel": "prometheus-ui",
@@ -376,6 +399,7 @@ async def list_metrics(
     limit: Optional[int] = None,
     offset: int = 0,
     filter_pattern: Optional[str] = None,
+    prometheus_url: Optional[str] = None,
     ctx: Context | None = None
 ) -> Dict[str, Any]:
     """Retrieve a list of all metric names available in Prometheus.
@@ -384,6 +408,7 @@ async def list_metrics(
         limit: Maximum number of metrics to return (default: all metrics)
         offset: Number of metrics to skip for pagination (default: 0)
         filter_pattern: Optional substring to filter metric names (case-insensitive)
+        prometheus_url: Optional Prometheus URL to query. If not provided, uses the configured URL.
 
     Returns:
         Dictionary containing:
@@ -393,13 +418,13 @@ async def list_metrics(
         - offset: Current offset
         - has_more: Whether more metrics are available
     """
-    logger.info("Listing available metrics", limit=limit, offset=offset, filter_pattern=filter_pattern)
+    logger.info("Listing available metrics", limit=limit, offset=offset, filter_pattern=filter_pattern, prometheus_url=prometheus_url)
 
     # Report progress if context available
     if ctx:
         await ctx.report_progress(progress=0, total=100, message="Fetching metrics list...")
 
-    data = make_prometheus_request("label/__name__/values")
+    data = make_prometheus_request("label/__name__/values", prometheus_url=prometheus_url)
 
     if ctx:
         await ctx.report_progress(progress=50, total=100, message=f"Processing {len(data)} metrics...")
@@ -447,18 +472,19 @@ async def list_metrics(
         "openWorldHint": True
     }
 )
-async def get_metric_metadata(metric: str) -> List[Dict[str, Any]]:
+async def get_metric_metadata(metric: str, prometheus_url: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get metadata about a specific metric.
 
     Args:
         metric: The name of the metric to retrieve metadata for
+        prometheus_url: Optional Prometheus URL to query. If not provided, uses the configured URL.
 
     Returns:
         List of metadata entries for the metric
     """
-    logger.info("Retrieving metric metadata", metric=metric)
+    logger.info("Retrieving metric metadata", metric=metric, prometheus_url=prometheus_url)
     endpoint = f"metadata?metric={metric}"
-    data = make_prometheus_request(endpoint, params=None)
+    data = make_prometheus_request(endpoint, params=None, prometheus_url=prometheus_url)
     if "metadata" in data:
         metadata = data["metadata"]
     elif "data" in data:
@@ -481,14 +507,17 @@ async def get_metric_metadata(metric: str) -> List[Dict[str, Any]]:
         "openWorldHint": True
     }
 )
-async def get_targets() -> Dict[str, List[Dict[str, Any]]]:
+async def get_targets(prometheus_url: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
     """Get information about all Prometheus scrape targets.
+    
+    Args:
+        prometheus_url: Optional Prometheus URL to query. If not provided, uses the configured URL.
 
     Returns:
         Dictionary with active and dropped targets information
     """
-    logger.info("Retrieving scrape targets information")
-    data = make_prometheus_request("targets")
+    logger.info("Retrieving scrape targets information", prometheus_url=prometheus_url)
+    data = make_prometheus_request("targets", prometheus_url=prometheus_url)
     
     result = {
         "activeTargets": data["activeTargets"],
