@@ -13,14 +13,15 @@ def setup_environment():
     else:
         logger.info("Environment configuration loaded", source="environment variables", note="No .env file found")
 
-    if not config.url:
-        logger.error(
-            "Missing required configuration",
-            error="PROMETHEUS_URL environment variable is not set",
-            suggestion="Please set it to your Prometheus server URL",
-            example="http://your-prometheus-server:9090"
+    # Prometheus URL is now optional - can be provided per-request
+    if config.url:
+        logger.info("Default Prometheus URL configured", url=config.url)
+    else:
+        logger.info(
+            "No default Prometheus URL configured",
+            note="Prometheus URL, username, and password must be provided with each tool call",
+            mode="credential-free"
         )
-        return False
     
     # MCP Server configuration validation
     mcp_config = config.mcp_server_config
@@ -46,18 +47,19 @@ def setup_environment():
             )
             return False
     
-    # Determine authentication method
-    auth_method = "none"
+    # Determine authentication method for default credentials
+    auth_method = "none (credential-free mode)"
     if config.username and config.password:
-        auth_method = "basic_auth"
+        auth_method = "basic_auth (default credentials configured)"
     elif config.token:
-        auth_method = "bearer_token"
+        auth_method = "bearer_token (default credentials configured)"
     
     logger.info(
-        "Prometheus configuration validated",
-        server_url=config.url,
-        authentication=auth_method,
-        org_id=config.org_id if config.org_id else None
+        "Prometheus MCP Server configuration",
+        default_server_url=config.url if config.url else "not configured",
+        default_authentication=auth_method,
+        org_id=config.org_id if config.org_id else None,
+        mode="credential-free" if not config.url else "hybrid"
     )
     
     return True

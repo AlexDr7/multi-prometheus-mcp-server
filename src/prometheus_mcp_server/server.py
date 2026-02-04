@@ -35,11 +35,19 @@ logger = get_logger()
         "openWorldHint": True
     }
 )
-async def health_check(prometheus_url: Optional[str] = None) -> Dict[str, Any]:
+async def health_check(
+    prometheus_url: Optional[str] = None,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    token: Optional[str] = None
+) -> Dict[str, Any]:
     """Return health status of the MCP server and Prometheus connection.
     
     Args:
         prometheus_url: Optional Prometheus URL to check. If not provided, uses the configured URL.
+        username: Optional username for basic authentication. If not provided, uses configured credentials.
+        password: Optional password for basic authentication. If not provided, uses configured credentials.
+        token: Optional bearer token for authentication. If not provided, uses configured credentials.
 
     Returns:
         Health status including service information, configuration, and connectivity
@@ -65,7 +73,7 @@ async def health_check(prometheus_url: Optional[str] = None) -> Dict[str, Any]:
         if test_url:
             try:
                 # Quick connectivity test
-                make_prometheus_request("query", params={"query": "up", "time": str(int(time.time()))}, prometheus_url=prometheus_url)
+                make_prometheus_request("query", params={"query": "up", "time": str(int(time.time()))}, prometheus_url=prometheus_url, username=username, password=password, token=token)
                 health_status["prometheus_connectivity"] = "healthy"
                 health_status["prometheus_url"] = test_url
             except Exception as e:
@@ -120,10 +128,10 @@ class MCPServerConfig:
 
 @dataclass
 class PrometheusConfig:
-    url: str
+    url: Optional[str] = None
     url_ssl_verify: bool = True
     disable_prometheus_links: bool = False
-    # Optional credentials
+    # Optional credentials (can be overridden per-request)
     username: Optional[str] = None
     password: Optional[str] = None
     token: Optional[str] = None
@@ -135,13 +143,13 @@ class PrometheusConfig:
     custom_headers: Optional[Dict[str, str]] = None
 
 config = PrometheusConfig(
-    url=os.environ.get("PROMETHEUS_URL", ""),
+    url=os.environ.get("PROMETHEUS_URL") or None,
     url_ssl_verify=os.environ.get("PROMETHEUS_URL_SSL_VERIFY", "True").lower() in ("true", "1", "yes"),
     disable_prometheus_links=os.environ.get("PROMETHEUS_DISABLE_LINKS", "False").lower() in ("true", "1", "yes"),
-    username=os.environ.get("PROMETHEUS_USERNAME", ""),
-    password=os.environ.get("PROMETHEUS_PASSWORD", ""),
-    token=os.environ.get("PROMETHEUS_TOKEN", ""),
-    org_id=os.environ.get("ORG_ID", ""),
+    username=os.environ.get("PROMETHEUS_USERNAME") or None,
+    password=os.environ.get("PROMETHEUS_PASSWORD") or None,
+    token=os.environ.get("PROMETHEUS_TOKEN") or None,
+    org_id=os.environ.get("ORG_ID") or None,
     mcp_server_config=MCPServerConfig(
         mcp_server_transport=os.environ.get("PROMETHEUS_MCP_SERVER_TRANSPORT", "stdio").lower(),
         mcp_bind_host=os.environ.get("PROMETHEUS_MCP_BIND_HOST", "127.0.0.1"),
@@ -150,21 +158,38 @@ config = PrometheusConfig(
     custom_headers=json.loads(os.environ.get("PROMETHEUS_CUSTOM_HEADERS")) if os.environ.get("PROMETHEUS_CUSTOM_HEADERS") else None,
 )
 
-def get_prometheus_auth():
-    """Get authentication for Prometheus based on provided credentials."""
-    if config.token:
-        return {"Authorization": f"Bearer {config.token}"}
-    elif config.username and config.password:
-        return requests.auth.HTTPBasicAuth(config.username, config.password)
+def get_prometheus_auth(username: Optional[str] = None, password: Optional[str] = None, token: Optional[str] = None):
+    """Get authentication for Prometheus based on provided credentials.
+    
+    Args:
+        username: Optional username for basic auth (overrides config)
+        password: Optional password for basic auth (overrides config)
+        token: Optional bearer token (overrides config)
+    
+    Returns:
+        Authentication object or dict with headers
+    """
+    # Use provided credentials or fall back to config
+    use_token = token if token is not None else config.token
+    use_username = username if username is not None else config.username
+    use_password = password if password is not None else config.password
+    
+    if use_token:
+        return {"Authorization": f"Bearer {use_token}"}
+    elif use_username and use_password:
+        return requests.auth.HTTPBasicAuth(use_username, use_password)
     return None
 
-def make_prometheus_request(endpoint, params=None, prometheus_url: Optional[str] = None):
+def make_prometheus_request(endpoint, params=None, prometheus_url: Optional[str] = None, username: Optional[str] = None, password: Optional[str] = None, token: Optional[str] = None):
     """Make a request to the Prometheus API with proper authentication and headers.
     
     Args:
         endpoint: The Prometheus API endpoint to call
         params: Query parameters for the request
         prometheus_url: Optional Prometheus URL to use for this request. If not provided, uses the configured URL.
+        username: Optional username for basic auth (overrides config)
+        password: Optional password for basic auth (overrides config)
+        token: Optional bearer token (overrides config)
     """
     # Use provided URL or fall back to configured URL
     base_url = prometheus_url or config.url
@@ -178,7 +203,7 @@ def make_prometheus_request(endpoint, params=None, prometheus_url: Optional[str]
 
     url = f"{base_url.rstrip('/')}/api/v1/{endpoint}"
     url_ssl_verify = config.url_ssl_verify
-    auth = get_prometheus_auth()
+    auth = get_prometheus_auth(username=username, password=password, token=token)
     headers = {}
 
     if isinstance(auth, dict):  # Token auth is passed via headers
@@ -264,13 +289,23 @@ def get_cached_metrics() -> List[str]:
         "openWorldHint": True
     }
 )
-async def execute_query(query: str, time: Optional[str] = None, prometheus_url: Optional[str] = None) -> Dict[str, Any]:
+async def execute_query(
+    query: str,
+    time: Optional[str] = None,
+    prometheus_url: Optional[str] = None,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    token: Optional[str] = None
+) -> Dict[str, Any]:
     """Execute an instant query against Prometheus.
 
     Args:
         query: PromQL query string
         time: Optional RFC3339 or Unix timestamp (default: current time)
         prometheus_url: Optional Prometheus URL to query. If not provided, uses the configured URL.
+        username: Optional username for basic authentication. If not provided, uses configured credentials.
+        password: Optional password for basic authentication. If not provided, uses configured credentials.
+        token: Optional bearer token for authentication. If not provided, uses configured credentials.
 
     Returns:
         Query result with type (vector, matrix, scalar, string) and values
@@ -280,7 +315,7 @@ async def execute_query(query: str, time: Optional[str] = None, prometheus_url: 
         params["time"] = time
     
     logger.info("Executing instant query", query=query, time=time, prometheus_url=prometheus_url)
-    data = make_prometheus_request("query", params=params, prometheus_url=prometheus_url)
+    data = make_prometheus_request("query", params=params, prometheus_url=prometheus_url, username=username, password=password, token=token)
 
     result = {
         "resultType": data["resultType"],
@@ -319,7 +354,17 @@ async def execute_query(query: str, time: Optional[str] = None, prometheus_url: 
         "openWorldHint": True
     }
 )
-async def execute_range_query(query: str, start: str, end: str, step: str, prometheus_url: Optional[str] = None, ctx: Context | None = None) -> Dict[str, Any]:
+async def execute_range_query(
+    query: str,
+    start: str,
+    end: str,
+    step: str,
+    prometheus_url: Optional[str] = None,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    token: Optional[str] = None,
+    ctx: Context | None = None
+) -> Dict[str, Any]:
     """Execute a range query against Prometheus.
 
     Args:
@@ -328,6 +373,9 @@ async def execute_range_query(query: str, start: str, end: str, step: str, prome
         end: End time as RFC3339 or Unix timestamp
         step: Query resolution step width (e.g., '15s', '1m', '1h')
         prometheus_url: Optional Prometheus URL to query. If not provided, uses the configured URL.
+        username: Optional username for basic authentication. If not provided, uses configured credentials.
+        password: Optional password for basic authentication. If not provided, uses configured credentials.
+        token: Optional bearer token for authentication. If not provided, uses configured credentials.
 
     Returns:
         Range query result with type (usually matrix) and values over time
@@ -345,7 +393,7 @@ async def execute_range_query(query: str, start: str, end: str, step: str, prome
     if ctx:
         await ctx.report_progress(progress=0, total=100, message="Initiating range query...")
 
-    data = make_prometheus_request("query_range", params=params, prometheus_url=prometheus_url)
+    data = make_prometheus_request("query_range", params=params, prometheus_url=prometheus_url, username=username, password=password, token=token)
 
     # Report progress
     if ctx:
@@ -400,6 +448,9 @@ async def list_metrics(
     offset: int = 0,
     filter_pattern: Optional[str] = None,
     prometheus_url: Optional[str] = None,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    token: Optional[str] = None,
     ctx: Context | None = None
 ) -> Dict[str, Any]:
     """Retrieve a list of all metric names available in Prometheus.
@@ -409,6 +460,9 @@ async def list_metrics(
         offset: Number of metrics to skip for pagination (default: 0)
         filter_pattern: Optional substring to filter metric names (case-insensitive)
         prometheus_url: Optional Prometheus URL to query. If not provided, uses the configured URL.
+        username: Optional username for basic authentication. If not provided, uses configured credentials.
+        password: Optional password for basic authentication. If not provided, uses configured credentials.
+        token: Optional bearer token for authentication. If not provided, uses configured credentials.
 
     Returns:
         Dictionary containing:
@@ -424,7 +478,7 @@ async def list_metrics(
     if ctx:
         await ctx.report_progress(progress=0, total=100, message="Fetching metrics list...")
 
-    data = make_prometheus_request("label/__name__/values", prometheus_url=prometheus_url)
+    data = make_prometheus_request("label/__name__/values", prometheus_url=prometheus_url, username=username, password=password, token=token)
 
     if ctx:
         await ctx.report_progress(progress=50, total=100, message=f"Processing {len(data)} metrics...")
@@ -472,19 +526,28 @@ async def list_metrics(
         "openWorldHint": True
     }
 )
-async def get_metric_metadata(metric: str, prometheus_url: Optional[str] = None) -> List[Dict[str, Any]]:
+async def get_metric_metadata(
+    metric: str,
+    prometheus_url: Optional[str] = None,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    token: Optional[str] = None
+) -> List[Dict[str, Any]]:
     """Get metadata about a specific metric.
 
     Args:
         metric: The name of the metric to retrieve metadata for
         prometheus_url: Optional Prometheus URL to query. If not provided, uses the configured URL.
+        username: Optional username for basic authentication. If not provided, uses configured credentials.
+        password: Optional password for basic authentication. If not provided, uses configured credentials.
+        token: Optional bearer token for authentication. If not provided, uses configured credentials.
 
     Returns:
         List of metadata entries for the metric
     """
     logger.info("Retrieving metric metadata", metric=metric, prometheus_url=prometheus_url)
     endpoint = f"metadata?metric={metric}"
-    data = make_prometheus_request(endpoint, params=None, prometheus_url=prometheus_url)
+    data = make_prometheus_request(endpoint, params=None, prometheus_url=prometheus_url, username=username, password=password, token=token)
     if "metadata" in data:
         metadata = data["metadata"]
     elif "data" in data:
@@ -507,17 +570,25 @@ async def get_metric_metadata(metric: str, prometheus_url: Optional[str] = None)
         "openWorldHint": True
     }
 )
-async def get_targets(prometheus_url: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
+async def get_targets(
+    prometheus_url: Optional[str] = None,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    token: Optional[str] = None
+) -> Dict[str, List[Dict[str, Any]]]:
     """Get information about all Prometheus scrape targets.
     
     Args:
         prometheus_url: Optional Prometheus URL to query. If not provided, uses the configured URL.
+        username: Optional username for basic authentication. If not provided, uses configured credentials.
+        password: Optional password for basic authentication. If not provided, uses configured credentials.
+        token: Optional bearer token for authentication. If not provided, uses configured credentials.
 
     Returns:
         Dictionary with active and dropped targets information
     """
     logger.info("Retrieving scrape targets information", prometheus_url=prometheus_url)
-    data = make_prometheus_request("targets", prometheus_url=prometheus_url)
+    data = make_prometheus_request("targets", prometheus_url=prometheus_url, username=username, password=password, token=token)
     
     result = {
         "activeTargets": data["activeTargets"],
